@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tuning Fork</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f2ec;
+    --ink: #1a1714;
+    --muted: #9a9188;
+    --active: #c8440a;
+    --line: #d6d0c8;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--ink);
+    font-family: Georgia, 'Times New Roman', serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+
+  header {
+    text-align: center;
+    margin-bottom: 3.5rem;
+  }
+
+  header h1 {
+    font-family: Georgia, serif;
+    font-weight: normal;
+    font-style: italic;
+    font-size: clamp(2rem, 5vw, 3.2rem);
+    letter-spacing: 0.04em;
+    color: var(--ink);
+    line-height: 1;
+  }
+
+  header p {
+    margin-top: 0.5rem;
+    font-size: 0.68rem;
+    letter-spacing: 0.18em;
+    color: var(--muted);
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+  }
+
+  .fork-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 2.5rem;
+    margin-bottom: 2.5rem;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+
+  .tone-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 0.5rem 0.8rem;
+    position: relative;
+    gap: 0.5rem;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  .fork-svg {
+    width: 28px;
+    height: 60px;
+  }
+
+  .fork-svg path {
+    fill: none;
+    stroke: var(--ink);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: stroke 0.2s ease;
+  }
+
+  .tone-btn:active .fork-svg path,
+  .tone-btn.ringing .fork-svg path {
+    stroke: var(--active);
+  }
+
+  .tone-btn.ringing .fork-svg {
+    animation: vibrate 0.12s linear infinite;
+  }
+
+  @keyframes vibrate {
+    0%   { transform: translateX(0); }
+    25%  { transform: translateX(-1.2px); }
+    75%  { transform: translateX(1.2px); }
+    100% { transform: translateX(0); }
+  }
+
+  .ring {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    border: 1px solid var(--active);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .tone-btn.ringing .ring {
+    animation: expand 0.9s ease-out forwards;
+  }
+
+  @keyframes expand {
+    0%   { width: 28px; height: 28px; opacity: 0.7; }
+    100% { width: 72px; height: 72px; opacity: 0; }
+  }
+
+  .note-name {
+    font-size: 1.6rem;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    transition: color 0.2s ease;
+    line-height: 1;
+    font-family: Georgia, serif;
+    font-style: italic;
+  }
+
+  .tone-btn:active .note-name,
+  .tone-btn.ringing .note-name {
+    color: var(--active);
+  }
+
+  footer {
+    font-size: 0.6rem;
+    letter-spacing: 0.14em;
+    color: var(--line);
+    text-transform: uppercase;
+    text-align: center;
+    font-family: 'Courier New', monospace;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Tuning Fork</h1>
+  <p>Equal temperament · One octave</p>
+</header>
+
+<div class="fork-row" id="forks"></div>
+
+<footer>tap any note to hear its tone</footer>
+
+<script>
+const NOTES = [
+  { name: 'C',  freq: 261.63 },
+  { name: 'C♯', freq: 277.18 },
+  { name: 'D',  freq: 293.66 },
+  { name: 'D♯', freq: 311.13 },
+  { name: 'E',  freq: 329.63 },
+  { name: 'F',  freq: 349.23 },
+  { name: 'F♯', freq: 369.99 },
+  { name: 'G',  freq: 392.00 },
+  { name: 'G♯', freq: 415.30 },
+  { name: 'A',  freq: 440.00 },
+  { name: 'A♯', freq: 466.16 },
+  { name: 'B',  freq: 493.88 },
+];
+
+function forkSVG() {
+  return `<svg class="fork-svg" viewBox="0 0 28 60" xmlns="http://www.w3.org/2000/svg">
+    <path d="M10 8 L10 28 Q10 38 14 38 Q18 38 18 28 L18 8 M10 8 Q10 4 14 4 Q18 4 18 8 M14 38 L14 57"/>
+  </svg>`;
+}
+
+// iOS-safe AudioContext — must be created AND resumed inside a user gesture
+let audioCtx = null;
+
+function getCtx() {
+  if (!audioCtx) {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  }
+  return audioCtx;
+}
+
+function playTone(freq) {
+  const ctx = getCtx();
+
+  // iOS requires resume() inside the same user-gesture callback
+  const doPlay = () => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(freq, ctx.currentTime);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.38, ctx.currentTime + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 2.8);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(ctx.currentTime);
+    osc.stop(ctx.currentTime + 2.9);
+  };
+
+  if (ctx.state === 'suspended') {
+    ctx.resume().then(doPlay);
+  } else {
+    doPlay();
+  }
+}
+
+const container = document.getElementById('forks');
+
+NOTES.forEach(({ name, freq }) => {
+  const btn = document.createElement('button');
+  btn.className = 'tone-btn';
+  btn.setAttribute('aria-label', name);
+  btn.innerHTML = `
+    <div class="ring"></div>
+    ${forkSVG()}
+    <span class="note-name">${name}</span>
+  `;
+
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tone-btn').forEach(b => {
+      b.classList.remove('ringing');
+      const ring = b.querySelector('.ring');
+      const newRing = ring.cloneNode(true);
+      ring.replaceWith(newRing);
+    });
+
+    btn.classList.add('ringing');
+    playTone(freq);
+    setTimeout(() => btn.classList.remove('ringing'), 3000);
+  });
+
+  container.appendChild(btn);
+});
+</script>
+</body>
+</html>
