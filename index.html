@@ -145,45 +145,26 @@ function forkSVG() {
   return '<svg class="fork-svg" viewBox="0 0 28 60" xmlns="http://www.w3.org/2000/svg"><path d="M10 8 L10 28 Q10 38 14 38 Q18 38 18 28 L18 8 M10 8 Q10 4 14 4 Q18 4 18 8 M14 38 L14 57"/></svg>';
 }
 
-var audioCtx = null;
-
-// iOS unlock: play a silent buffer on first touch anywhere
-function unlockAudio() {
-  if (audioCtx) return;
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  var buf = audioCtx.createBuffer(1, 1, 22050);
-  var src = audioCtx.createBufferSource();
-  src.buffer = buf;
-  src.connect(audioCtx.destination);
-  src.start(0);
-  document.removeEventListener('touchstart', unlockAudio, true);
-  document.removeEventListener('touchend', unlockAudio, true);
-}
-
-document.addEventListener('touchstart', unlockAudio, true);
-document.addEventListener('touchend', unlockAudio, true);
-
+// Create a fresh AudioContext per tap — most reliable on iOS Chrome
+// Each new context created inside a user gesture starts in running state
 function playTone(freq) {
-  // Fallback: create context if unlock didn't fire (desktop)
-  if (!audioCtx) {
-    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  }
-  var ctx = audioCtx;
-
-  // Call resume() synchronously — do NOT wait for the promise
-  if (ctx.state === 'suspended') { ctx.resume(); }
-
+  var ctx = new (window.AudioContext || window.webkitAudioContext)();
   var osc = ctx.createOscillator();
   var gain = ctx.createGain();
+
   osc.type = 'sine';
   osc.frequency.setValueAtTime(freq, ctx.currentTime);
   gain.gain.setValueAtTime(0, ctx.currentTime);
   gain.gain.linearRampToValueAtTime(0.4, ctx.currentTime + 0.005);
   gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 2.8);
+
   osc.connect(gain);
   gain.connect(ctx.destination);
   osc.start(ctx.currentTime);
   osc.stop(ctx.currentTime + 3.0);
+
+  // Clean up context after sound ends
+  osc.onended = function() { ctx.close(); };
 }
 
 function triggerNote(btn, freq) {
